@@ -7,25 +7,36 @@ from pcdet.utils import common_utils
 
 from .dataset import DatasetTemplate
 from .kitti.kitti_dataset import KittiDataset
-from .nuscenes.nuscenes_dataset import NuScenesDataset
-from .waymo.waymo_dataset import WaymoDataset
-from .pandaset.pandaset_dataset import PandasetDataset
-from .lyft.lyft_dataset import LyftDataset
-from .once.once_dataset import ONCEDataset
-from .argo2.argo2_dataset import Argo2Dataset
 from .custom.custom_dataset import CustomDataset
 
 __all__ = {
     'DatasetTemplate': DatasetTemplate,
     'KittiDataset': KittiDataset,
-    'NuScenesDataset': NuScenesDataset,
-    'WaymoDataset': WaymoDataset,
-    'PandasetDataset': PandasetDataset,
-    'LyftDataset': LyftDataset,
-    'ONCEDataset': ONCEDataset,
     'CustomDataset': CustomDataset,
-    'Argo2Dataset': Argo2Dataset
 }
+
+# Deferred dataset backends — imported on demand in build_dataloader().
+# Avoids mandatory deps (av2, nuscenes-devkit, etc.) when only using KITTI.
+_DEFERRED_DATASETS = {
+    'NuScenesDataset': ('.nuscenes.nuscenes_dataset', 'NuScenesDataset'),
+    'WaymoDataset': ('.waymo.waymo_dataset', 'WaymoDataset'),
+    'PandasetDataset': ('.pandaset.pandaset_dataset', 'PandasetDataset'),
+    'LyftDataset': ('.lyft.lyft_dataset', 'LyftDataset'),
+    'ONCEDataset': ('.once.once_dataset', 'ONCEDataset'),
+    'Argo2Dataset': ('.argo2.argo2_dataset', 'Argo2Dataset'),
+}
+
+
+def _resolve_dataset(name):
+    """Resolve a dataset class by name, importing deferred backends on demand."""
+    if name in __all__:
+        return __all__[name]
+    if name in _DEFERRED_DATASETS:
+        import importlib
+        module_path, cls_name = _DEFERRED_DATASETS[name]
+        mod = importlib.import_module(module_path, package=__name__)
+        return getattr(mod, cls_name)
+    raise KeyError(f"Unknown dataset: {name!r}")
 
 
 class DistributedSampler(_DistributedSampler):
@@ -54,7 +65,7 @@ class DistributedSampler(_DistributedSampler):
 def build_dataloader(dataset_cfg, class_names, batch_size, dist, root_path=None, workers=4, seed=None,
                      logger=None, training=True, merge_all_iters_to_one_epoch=False, total_epochs=0):
 
-    dataset = __all__[dataset_cfg.DATASET](
+    dataset = _resolve_dataset(dataset_cfg.DATASET)(
         dataset_cfg=dataset_cfg,
         class_names=class_names,
         root_path=root_path,
