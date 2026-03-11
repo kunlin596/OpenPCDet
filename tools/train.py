@@ -49,15 +49,29 @@ def parse_config():
     parser.add_argument('--ckpt_save_time_interval', type=int, default=300, help='in terms of seconds')
     parser.add_argument('--wo_gpu_stat', action='store_true', help='')
     parser.add_argument('--use_amp', action='store_true', help='use mix precision training')
-    
+
+    parser.add_argument('--pretrained_weights', type=str, default=None,
+                        help='Path to TARL pretrained backbone checkpoint')
+    parser.add_argument('--data_dir', type=str, default=None,
+                        help='Override DATA_CONFIG.DATA_PATH')
+    parser.add_argument('--train_info', type=str, default=None,
+                        help='Override DATA_CONFIG.INFO_PATH.train with a custom PKL')
+    parser.add_argument('--wandb_project', type=str, default=None,
+                        help='W&B project name (enables W&B logging)')
 
     args = parser.parse_args()
 
     cfg_from_yaml_file(args.cfg_file, cfg)
     cfg.TAG = Path(args.cfg_file).stem
     cfg.EXP_GROUP_PATH = '/'.join(args.cfg_file.split('/')[1:-1])  # remove 'cfgs' and 'xxxx.yaml'
-    
+
     args.use_amp = args.use_amp or cfg.OPTIMIZATION.get('USE_AMP', False)
+
+    if args.data_dir is not None:
+        cfg.DATA_CONFIG.DATA_PATH = args.data_dir
+
+    if args.train_info is not None:
+        cfg.DATA_CONFIG.INFO_PATH['train'] = [args.train_info]
 
     if args.set_cfgs is not None:
         cfg_from_list(args.set_cfgs, cfg)
@@ -116,6 +130,23 @@ def main():
 
     tb_log = SummaryWriter(log_dir=str(output_dir / 'tensorboard')) if cfg.LOCAL_RANK == 0 else None
 
+    # W&B logging
+    wandb_run = None
+    if args.wandb_project is not None and cfg.LOCAL_RANK == 0:
+        import wandb
+
+        wandb_run = wandb.init(
+            project=args.wandb_project,
+            name=args.extra_tag,
+            config={
+                "cfg_file": args.cfg_file,
+                "batch_size": args.batch_size,
+                "epochs": args.epochs,
+                "lr": cfg.OPTIMIZATION.LR,
+                "pretrained_weights": args.pretrained_weights,
+            },
+        )
+
     logger.info("----------- Create dataloader & network & optimizer -----------")
     train_set, train_loader, train_sampler = build_dataloader(
         dataset_cfg=cfg.DATA_CONFIG,
@@ -141,6 +172,16 @@ def main():
     last_epoch = -1
     if args.pretrained_model is not None:
         model.load_params_from_file(filename=args.pretrained_model, to_cpu=dist_train, logger=logger)
+
+    # TARL pretrained backbone loading
+    if args.pretrained_weights is not None:
+        checkpoint = torch.load(args.pretrained_weights, map_location="cpu", weights_only=False)
+        if "model" not in checkpoint:
+            raise KeyError(
+                f"Expected 'model' key in checkpoint, found: {list(checkpoint.keys())}"
+            )
+        model.backbone_3d.load_state_dict(checkpoint["model"], strict=True)
+        logger.info(f"Loaded TARL pretrained backbone from {args.pretrained_weights}")
 
     if args.ckpt is not None:
         it, start_epoch = model.load_params_with_optimizer(args.ckpt, to_cpu=dist_train, optimizer=optimizer, logger=logger)
@@ -227,6 +268,9 @@ def main():
     )
     logger.info('**********************End evaluation %s/%s(%s)**********************' %
                 (cfg.EXP_GROUP_PATH, cfg.TAG, args.extra_tag))
+
+    if wandb_run is not None:
+        wandb_run.finish()
 
 
 if __name__ == '__main__':
