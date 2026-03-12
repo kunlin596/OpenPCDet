@@ -157,7 +157,7 @@ class PointHeadTemplate(nn.Module):
     def get_part_layer_loss(self, tb_dict=None):
         pos_mask = self.forward_ret_dict['point_cls_labels'] > 0
         pos_normalizer = max(1, (pos_mask > 0).sum().item())
-        point_part_labels = self.forward_ret_dict['point_part_labels']
+        point_part_labels = self.forward_ret_dict['point_part_labels'].clamp(min=0, max=1)
         point_part_preds = self.forward_ret_dict['point_part_preds']
         point_loss_part = F.binary_cross_entropy(torch.sigmoid(point_part_preds), point_part_labels, reduction='none')
         point_loss_part = (point_loss_part.sum(dim=-1) * pos_mask.float()).sum() / (3 * pos_normalizer)
