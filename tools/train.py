@@ -3,6 +3,7 @@ import argparse
 import datetime
 import glob
 import os
+import secrets
 from pathlib import Path
 from test import repeat_eval_ckpt
 
@@ -135,9 +136,14 @@ def main():
     if args.wandb_project is not None and cfg.LOCAL_RANK == 0:
         import wandb
 
+        date = datetime.datetime.now().strftime("%Y-%m-%d")
+        queue_job_id = os.environ.get("QUEUE_JOB_ID")
+        suffix = f"{int(queue_job_id):04d}" if queue_job_id else secrets.token_hex(3)
+        tag = args.extra_tag.replace("_", "-")
+        wandb_name = f"det-{tag}-{date}-{suffix}"
         wandb_run = wandb.init(
             project=args.wandb_project,
-            name=args.extra_tag,
+            name=wandb_name,
             config={
                 "cfg_file": args.cfg_file,
                 "batch_size": args.batch_size,
