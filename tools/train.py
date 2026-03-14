@@ -138,7 +138,7 @@ def main():
 
         date = datetime.datetime.now().strftime("%Y-%m-%d")
         queue_job_id = os.environ.get("QUEUE_JOB_ID")
-        suffix = f"{int(queue_job_id):04d}" if queue_job_id else secrets.token_hex(3)
+        suffix = f"{int(queue_job_id):06d}" if queue_job_id else secrets.token_hex(3)
         tag = args.extra_tag.replace("_", "-")
         wandb_name = f"det-{tag}-{date}-{suffix}"
         wandb_run = wandb.init(
